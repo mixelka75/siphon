@@ -56,7 +56,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - name: Версия в метаданных приложения
-        run: sed -i '' "s/\"productVersion\": \"[^\"]*\"/\"productVersion\": \"${VERSION%%-*}\"/" desktop/wails.json
+        run: |
+          sed -i '' "s/\"productVersion\": \"[^\"]*\"/\"productVersion\": \"${VERSION%%-*}\"/" desktop/wails.json
       - name: Сборка universal (arm64 + x86_64)
         working-directory: desktop
         env:
@@ -153,6 +154,6 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "Siphon ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag \
             --notes-file <(printf '%s\n' \
-              '**macOS:** откройте `.dmg`, перетащите Siphon в «Программы». Если macOS пишет «повреждено» или «неизвестный разработчик» — см. [README](../../blob/main/README.md#macos).' \
+              '**macOS:** откройте `.dmg`, перетащите Siphon в «Программы». Если macOS пишет «повреждено» или «неизвестный разработчик» — см. [README](https://github.com/mixelka75/siphon/blob/main/README.md#macos).' \
               '' \
-              '**macOS:** open the `.dmg`, drag Siphon to Applications. If macOS says "damaged" / "unidentified developer" see the [README](../../blob/main/README.en.md#macos).')
+              '**macOS:** open the `.dmg`, drag Siphon to Applications. If macOS says "damaged" / "unidentified developer" see the [README](https://github.com/mixelka75/siphon/blob/main/README.en.md#macos).')
