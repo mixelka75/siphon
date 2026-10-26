@@ -54,7 +54,7 @@ func main() {
 	d := &Desktop{backend: backend}
 	err = wails.Run(&options.App{
 		Title: "Siphon", Width: 1280, Height: 850, MinWidth: 900, MinHeight: 600,
-		BackgroundColour:   options.NewRGB(16, 19, 24),
+		BackgroundColour:   options.NewRGB(18, 18, 18),
 		AssetServer:        &assetserver.Options{Assets: webui.FS()},
 		OnStartup:          func(ctx context.Context) { d.ctx = ctx },
 		OnShutdown:         func(context.Context) { backend.Close() },

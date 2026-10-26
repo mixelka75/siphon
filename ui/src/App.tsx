@@ -32,41 +32,70 @@ export default function App() {
     return null;
   };
   const proxy = appState ? `${appState.proxy.bind}:${appState.proxy.port}` : '';
+  const total = getItems().length;
+
+  // ⌘1…⌘4 / Ctrl+1…4 — быстрый переход между разделами.
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (!(ev.metaKey || ev.ctrlKey) || ev.altKey || ev.shiftKey) return;
+      const n = NAV[Number(ev.key) - 1];
+      if (n) { ev.preventDefault(); setPage(n.id); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setPage]);
+
+  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+  const items = [
+    active ? `перехват: ${active} ${active === 1 ? 'приложение' : 'приложений'}` : 'готов к перехвату',
+    `${total} запросов в сессии`,
+    ...(proxy ? [`прокси ${proxy}`] : []),
+    'works on my phone',
+  ];
+  const strip = items.flatMap((t, i) => [<span key={'t' + i}>{t}</span>, <span key={'s' + i} className="star">✱</span>]);
 
   return (
     <div className="workspace">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-logo">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"><path d="M2.5 4.5h11M2.5 8h7.5M2.5 11.5h4.5" /></svg>
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="brand">siphon<i>.</i><small>{appState?.version ? 'v' + appState.version : ''}</small></div>
+          <nav className="nav">
+            {NAV.map((n, i) => (
+              <button key={n.id} className={'nav-item' + (page === n.id ? ' active' : '')} onClick={() => setPage(n.id)}
+                title={`${n.label} (${mod}${i + 1})`}>
+                <Icon name={n.icon} size={16} /> {n.label}
+                {badge(n.id) !== null ? <span className="badge">{badge(n.id)}</span> : <span className="key">{mod}{i + 1}</span>}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar-foot">
+            Android · Frida · HTTP(S)<br />
+            <b>⌘K</b> — поиск в трафике
           </div>
-          Siphon
-        </div>
-        <nav className="nav">
-          {NAV.map((n) => (
-            <button key={n.id} className={'nav-item' + (page === n.id ? ' active' : '')} onClick={() => setPage(n.id)}>
-              <Icon name={n.icon} size={16} /> {n.label}
-              {badge(n.id) !== null && <span className="badge">{badge(n.id)}</span>}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-foot">
-          <div className="conn">
-            <span className={'dot ' + (connected ? 'green' : 'orange pulse')} />
-            {connected ? 'Подключено' : 'Переподключаюсь…'}
-          </div>
-          {proxy && <div title="Адрес ручного прокси">Прокси <code>{proxy}</code></div>}
-        </div>
-      </aside>
+        </aside>
 
-      <main className="main">
-        <ErrorBoundary key={page}>
-          {page === 'traffic' && <TrafficPage />}
-          {page === 'android' && <AndroidPage />}
-        {page === 'rules' && <RulesPage />}
-          {page === 'settings' && <SettingsPage />}
-        </ErrorBoundary>
-      </main>
+        <main className="main">
+          <ErrorBoundary key={page}>
+            {page === 'traffic' && <TrafficPage />}
+            {page === 'android' && <AndroidPage />}
+            {page === 'rules' && <RulesPage />}
+            {page === 'settings' && <SettingsPage />}
+          </ErrorBoundary>
+        </main>
+      </div>
+
+      <footer className="statusbar">
+        {active > 0 && <div className="sb-cell live">● live</div>}
+        <div className="sb-cell">
+          <span className={'dot ' + (connected ? 'green' : 'orange pulse')} />
+          {connected ? 'подключено' : 'переподключаюсь…'}
+        </div>
+        <div className={'ticker' + (active > 0 ? '' : ' idle')}>
+          {active > 0
+            ? <div className="ticker-track">{strip}{strip}</div>
+            : <div className="ticker-track">{items.slice(0, 3).join('  ·  ')}</div>}
+        </div>
+      </footer>
 
       {toast && <div className="toast">{toast}</div>}
     </div>

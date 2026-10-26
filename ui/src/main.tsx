@@ -1,6 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import '@fontsource-variable/roboto-flex/wdth.css';
+import '@fontsource-variable/jetbrains-mono';
 import './styles.css';
 import { initDesktop } from './desktop';
 
