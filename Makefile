@@ -1,4 +1,4 @@
-.PHONY: help setup ui build run test dev-ui dist scripts clean native native-windows native-linux
+.PHONY: help setup ui build run test dev-ui dist scripts clean native native-windows native-linux dmg
 
 help:
 	@echo "make setup   — поставить зависимости интерфейса"
@@ -11,6 +11,7 @@ help:
 	@echo "make native  — нативное приложение для текущей системы (Wails)"
 	@echo "make native-windows — Windows .exe (можно собрать с macOS)"
 	@echo "make native-linux — Linux amd64 в Docker (GTK/WebKit)"
+	@echo "make dmg     — macOS: подпись, DMG с оформленным окном и ZIP в bin/ (с секретами — ещё и нотаризация)"
 
 setup:
 	cd ui && npm install
@@ -47,6 +48,9 @@ clean:
 
 native:
 	cd desktop && MACOSX_DEPLOYMENT_TARGET=13.0 go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.0 build
+
+dmg: native
+	packaging/macos/package.sh desktop/build/bin/Siphon.app bin
 
 native-windows:
 	cd desktop && go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.0 build -platform windows/amd64 -o Siphon.exe

@@ -47,6 +47,8 @@ jobs:
   macos:
     needs: [test, version]
     runs-on: macos-latest
+    outputs:
+      notarized: ${{ steps.release.outputs.notarized == 'true' }}
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -63,20 +65,23 @@ jobs:
         env:
           MACOSX_DEPLOYMENT_TARGET: '13.0'
         run: go run $WAILS build -platform darwin/universal -clean -ldflags "-X main.version=${VERSION}"
-      - name: Ad-hoc подпись
-        # Без подписи Apple Silicon считает приложение «повреждённым». Ad-hoc подпись (без платного
-        # Developer ID) оставляет обычный диалог «неизвестный разработчик» с кнопкой «Всё равно открыть».
-        run: |
-          codesign --force --deep --sign - desktop/build/bin/Siphon.app
-          codesign --verify --deep --strict --verbose=2 desktop/build/bin/Siphon.app
-          lipo -archs desktop/build/bin/Siphon.app/Contents/MacOS/Siphon
-      - name: DMG и ZIP
-        run: |
-          mkdir -p dist dmg
-          cp -R desktop/build/bin/Siphon.app dmg/
-          ln -s /Applications dmg/Applications
-          hdiutil create -volname "Siphon" -srcfolder dmg -ov -format UDZO dist/Siphon-macOS-universal.dmg
-          ditto -c -k --sequesterRsrc --keepParent desktop/build/bin/Siphon.app dist/Siphon-macOS-universal.zip
+      # Подпись Developer ID и нотаризация Apple: тогда macOS открывает приложение без предупреждений.
+      # Секреты отдаём только релизным сборкам (теги и ручной запуск), PR их не видят.
+      # Если секретов нет, package.sh делает ad-hoc подпись, а в релизных заметках остаётся инструкция.
+      - name: Подпись Developer ID, нотаризация, DMG и ZIP
+        id: release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_BUILD: '1'
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: packaging/macos/package.sh desktop/build/bin/Siphon.app dist
+      - name: Ad-hoc подпись, DMG и ZIP
+        if: steps.release.outcome == 'skipped'
+        run: packaging/macos/package.sh desktop/build/bin/Siphon.app dist
       - uses: actions/upload-artifact@v4
         with: { name: macos, path: dist/*, if-no-files-found: error }
 
@@ -150,10 +155,15 @@ jobs:
       - name: Релиз
         env:
           GH_TOKEN: ${{ github.token }}
+          NOTARIZED: ${{ needs.macos.outputs.notarized }}
         run: |
+          if [[ "$NOTARIZED" == true ]]; then
+            ru='**macOS:** откройте `.dmg` и перетащите Siphon в «Программы». Приложение подписано Developer ID и нотаризовано Apple.'
+            en='**macOS:** open the `.dmg` and drag Siphon to Applications. The app is signed with Developer ID and notarized by Apple.'
+          else
+            ru='**macOS:** откройте `.dmg`, перетащите Siphon в «Программы». Если macOS пишет «повреждено» или «неизвестный разработчик» — см. [README](https://github.com/mixelka75/siphon/blob/main/README.md#macos).'
+            en='**macOS:** open the `.dmg`, drag Siphon to Applications. If macOS says "damaged" / "unidentified developer" see the [README](https://github.com/mixelka75/siphon/blob/main/README.en.md#macos).'
+          fi
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "Siphon ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag \
-            --notes-file <(printf '%s\n' \
-              '**macOS:** откройте `.dmg`, перетащите Siphon в «Программы». Если macOS пишет «повреждено» или «неизвестный разработчик» — см. [README](https://github.com/mixelka75/siphon/blob/main/README.md#macos).' \
-              '' \
-              '**macOS:** open the `.dmg`, drag Siphon to Applications. If macOS says "damaged" / "unidentified developer" see the [README](https://github.com/mixelka75/siphon/blob/main/README.en.md#macos).')
+            --notes-file <(printf '%s\n' "$ru" '' "$en")
