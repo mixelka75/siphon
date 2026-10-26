@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Siphon
+Comment=HTTP(S) traffic inspector for Android
+Exec=@EXEC@
+Icon=@ICON@
+Terminal=false
+Categories=Development;Network;
+StartupWMClass=siphon

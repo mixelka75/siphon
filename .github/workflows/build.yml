@@ -1,31 +1,158 @@
-name: Build Siphon
-on: [workflow_dispatch, push, pull_request]
+name: Build & Release
+
+# Каждый push/PR собирает приложения под три платформы и кладёт их в артефакты.
+# Тег вида v1.2.3 дополнительно публикует GitHub Release со всеми сборками.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.27.3'
+  NODE_VERSION: '22'
+  WAILS: github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
+
 jobs:
-  native:
-    strategy:
-      matrix:
-        os: [macos-latest, windows-latest, ubuntu-24.04]
-    runs-on: ${{ matrix.os }}
+  test:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with:
-          go-version: '1.27.3'
+        with: { go-version: '${{ env.GO_VERSION }}' }
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-      - run: npm ci
-        working-directory: ui
-      - run: npm run build
+          node-version: '${{ env.NODE_VERSION }}'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci && npm run build
         working-directory: ui
       - run: go vet ./...
-      - run: go test -race ./...
-      - if: runner.os == 'Linux'
-        run: docker build --platform linux/amd64 -f desktop/Dockerfile --output type=local,dest=desktop/build/bin .
-      - if: runner.os != 'Linux'
-        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.0 build
+      - run: go test -race -count=1 ./...
+
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-${GITHUB_SHA::7}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: [test, version]
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '${{ env.GO_VERSION }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - name: Версия в метаданных приложения
+        run: sed -i '' "s/\"productVersion\": \"[^\"]*\"/\"productVersion\": \"${VERSION%%-*}\"/" desktop/wails.json
+      - name: Сборка universal (arm64 + x86_64)
         working-directory: desktop
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '13.0'
+        run: go run $WAILS build -platform darwin/universal -clean -ldflags "-X main.version=${VERSION}"
+      - name: Ad-hoc подпись
+        # Без подписи Apple Silicon считает приложение «повреждённым». Ad-hoc подпись (без платного
+        # Developer ID) оставляет обычный диалог «неизвестный разработчик» с кнопкой «Всё равно открыть».
+        run: |
+          codesign --force --deep --sign - desktop/build/bin/Siphon.app
+          codesign --verify --deep --strict --verbose=2 desktop/build/bin/Siphon.app
+          lipo -archs desktop/build/bin/Siphon.app/Contents/MacOS/Siphon
+      - name: DMG и ZIP
+        run: |
+          mkdir -p dist dmg
+          cp -R desktop/build/bin/Siphon.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Siphon" -srcfolder dmg -ov -format UDZO dist/Siphon-macOS-universal.dmg
+          ditto -c -k --sequesterRsrc --keepParent desktop/build/bin/Siphon.app dist/Siphon-macOS-universal.zip
       - uses: actions/upload-artifact@v4
-        with:
-          name: Siphon-${{ runner.os }}
-          path: desktop/build/bin/
+        with: { name: macos, path: dist/*, if-no-files-found: error }
+
+  windows:
+    needs: [test, version]
+    runs-on: windows-latest
+    defaults:
+      run: { shell: bash }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '${{ env.GO_VERSION }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - name: Версия в метаданных приложения
+        run: |
+          sed -i "s/\"productVersion\": \"[^\"]*\"/\"productVersion\": \"${VERSION%%-*}\"/" desktop/wails.json
+      - name: Сборка
+        working-directory: desktop
+        run: go run $WAILS build -platform windows/amd64 -clean -ldflags "-X main.version=${VERSION}"
+      - name: ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path desktop/build/bin/Siphon.exe -DestinationPath dist/Siphon-Windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: dist/*, if-no-files-found: error }
+
+  linux:
+    needs: [test, version]
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - run: npm ci && npm run build
+        working-directory: ui
+      - name: Сборка в Docker (GTK3 + WebKitGTK 4.1)
+        run: |
+          docker build --platform linux/amd64 -f desktop/Dockerfile \
+            --build-arg VERSION="${VERSION}" --output type=local,dest=out .
+      - name: Архив
+        run: |
+          d=Siphon-Linux-x64
+          mkdir -p dist "$d"
+          install -m755 out/siphon "$d/siphon"
+          cp desktop/build/appicon.png "$d/siphon.png"
+          cp packaging/linux/siphon.desktop packaging/linux/install.sh "$d/"
+          chmod +x "$d/install.sh"
+          tar -czf "dist/$d.tar.gz" "$d"
+      - uses: actions/upload-artifact@v4
+        with: { name: linux, path: dist/*, if-no-files-found: error }
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Контрольные суммы
+        working-directory: dist
+        run: sha256sum Siphon-* > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Siphon ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag \
+            --notes-file <(printf '%s\n' \
+              '**macOS:** откройте `.dmg`, перетащите Siphon в «Программы». Если macOS пишет «повреждено» или «неизвестный разработчик» — см. [README](../../blob/main/README.md#macos).' \
+              '' \
+              '**macOS:** open the `.dmg`, drag Siphon to Applications. If macOS says "damaged" / "unidentified developer" see the [README](../../blob/main/README.en.md#macos).')

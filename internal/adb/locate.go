@@ -38,6 +38,13 @@ func Locate(dataDir string) (string, error) {
 			return p, nil
 		}
 	}
+	// Приложение, запущенное из Finder/меню «Пуск», получает урезанный PATH:
+	// без /opt/homebrew/bin и т. п. Поэтому смотрим типичные места явно.
+	for _, dir := range commonDirs() {
+		if p := filepath.Join(dir, binName()); isFile(p) {
+			return p, nil
+		}
+	}
 	if p := filepath.Join(dataDir, "platform-tools", binName()); isFile(p) {
 		return p, nil
 	}
@@ -63,6 +70,16 @@ func sdkRoots() []string {
 		roots = append(roots, filepath.Join(home, "Android", "Sdk"))
 	}
 	return roots
+}
+
+func commonDirs() []string {
+	switch runtime.GOOS {
+	case "darwin":
+		return []string{"/opt/homebrew/bin", "/usr/local/bin", "/opt/homebrew/share/android-commandlinetools/platform-tools"}
+	case "linux":
+		return []string{"/usr/local/bin", "/usr/bin", "/snap/bin", "/usr/lib/android-sdk/platform-tools"}
+	}
+	return nil
 }
 
 func isFile(p string) bool {

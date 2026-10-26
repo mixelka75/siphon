@@ -1,141 +1,155 @@
-# Siphon 0.2
+<div align="center">
 
-Инспектор HTTP(S)-трафика Android-приложений через Frida. Backend на Go, интерфейс React.
-Есть **нативное настольное окно** (Wails: WKWebView на macOS, WebView2 на Windows, WebKitGTK на Linux)
-и отдельный режим в браузере. Для запуска готовой сборки Node и Python не нужны.
+<img src="desktop/build/appicon.png" width="112" alt="Siphon">
 
-## Запуск готовых сборок
+# siphon.
 
-- **macOS 13+ (Apple Silicon и Intel):** распаковать `Siphon-macOS-universal.zip`, открыть `Siphon.app`.
-- **Windows 10/11 x64:** распаковать архив, открыть `Siphon.exe`. Нужен Microsoft Edge WebView2 Runtime.
-- **Linux x64 (Debian 12 / Ubuntu 24.04):** распаковать архив, запустить `./siphon`.
-  Зависимости: `libgtk-3-0` и `libwebkit2gtk-4.1-0` (устанавливаются пакетным менеджером).
-  `install.sh` добавляет приложение в пользовательское меню и `~/.local/bin` без sudo.
+**Инспектор HTTP(S)-трафика Android-приложений.**<br>
+Выбрал приложение — увидел все его запросы в открытом виде. Без ручной установки сертификатов.
 
-Бинарники не подписаны сертификатами разработчика Apple/Microsoft. macOS-сборка имеет локальную ad-hoc подпись.
-Windows и Linux собраны; интерактивная проверка окна выполнена на macOS. Linux дополнительно запускается
-в Debian 12 под Xvfb. Проверка на физическом Android-телефоне не выполнялась.
+[![Релиз](https://img.shields.io/github/v/release/mixelka75/siphon?style=flat-square&color=ff4f1a&labelColor=121212)](https://github.com/mixelka75/siphon/releases/latest)
+[![Сборка](https://img.shields.io/github/actions/workflow/status/mixelka75/siphon/build.yml?style=flat-square&labelColor=121212)](https://github.com/mixelka75/siphon/actions)
+![Платформы](https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-121212?style=flat-square)
 
-В нативном режиме окно и backend запускаются одним процессом; закрытие окна завершает перехват.
-Экспорт HAR, тел и сертификатов использует системный диалог сохранения. Копирование использует системный буфер обмена.
-Повторный запуск приложения открывает существующее окно.
+**Русский** · [English](README.en.md)
 
-## Android
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/traffic-light.png">
+  <img src="docs/screenshots/traffic-dark.png" alt="Siphon: список запросов и детали ответа" width="920">
+</picture>
 
-1. Запустить эмулятор или подключить телефон с USB-отладкой.
-2. Открыть **Android → Подготовить устройство**. Siphon найдёт adb или предложит скачать официальные platform-tools.
-3. Выбрать приложение и нажать **Перехватить**. Режим «Перезапустить» загружает хуки с самого старта.
-4. Перейти в **Трафик**. Из карточки сессии кнопка «Трафик» сразу включает фильтр по приложению.
+</div>
 
-Нужен root: подходит образ эмулятора **Google APIs без Google Play**, либо телефон с root/Magisk.
-`frida-server` 17.24.3 устанавливается автоматически; SHA-512 закреплён отдельно для каждой архитектуры.
-Сертификат на Android вручную устанавливать не требуется.
+## Что это
 
-«К запущенному» подключается к существующему процессу; уже открытые соединения в перехват не попадут.
-«Совместимый TLS» отключает нативные verification-callback и автопатчер исключений. Java TLS и добавление
-CA в OpenSSL внутри библиотек приложения продолжают работать. Этот режим полезен при падении приложения.
+Siphon запускает на Android-устройстве [Frida](https://frida.re), направляет трафик выбранного приложения через себя
+и обходит certificate pinning. Вы видите запросы и ответы, можете их менять «на лету», подменять ответы сервера
+и сохранять трафик в HAR. Это нативное окно (не вкладка браузера), всё работает локально.
 
-### 2ГИС
+- **Перехват одной кнопкой** — подключили телефон или эмулятор, выбрали приложение, нажали «Перехватить».
+- **Всё необходимое ставится само** — `adb` и `frida-server` Siphon скачает сам, если их нет на компьютере.
+- **Правила и breakpoints** — mock, redirect, правка заголовков и тел, задержки, обрыв; пауза на запросе или ответе.
+- **Любой клиент** — кроме Android, это обычный HTTP/HTTPS/SOCKS5-прокси для браузера, Postman, симулятора.
+- **Умный просмотр** — JSON, формы, изображения, hex; gzip/brotli/zstd; HTTP/2, WebSocket, SSE, gRPC; экспорт HAR и cURL.
 
-Для `ru.dublgis.dgismobile` автоматически применяется проверенный профиль: совместимый TLS,
-без хуков скрытия root и Flutter. Siphon обнаруживает OpenSSL в библиотеке приложения и добавляет
-**только свой CA** в `X509_STORE` через публичный API OpenSSL. Проверки цепочки и имени сервера сохраняются.
-Системное хранилище сертификатов телефона не меняется.
+## Установка
 
-Проверено на **2ГИС 7.30.0.634.27, Android 14, arm64**: приложение работает, `POST passepartout.2gis.com`
-расшифрован, получен HTTP 200 и непустое тело (1288 байт). Проверен также `GET jam.api.2gis.com` → 204. В итоговом нативном окне получены расшифрованные запросы
-к `map-settings.api.2gis.ru`, `profile.api.2gis.ru`, `tile0.maps.2gis.com` и другим API 2ГИС;
-за проверку получено 16 ответов HTTP 200 с непустыми телами от доменов 2ГИС.
-Это проверка конкретной версии; отдельные протоколы, версии приложений или дополнительные pinning-проверки
-могут потребовать другого профиля. Факт TLS passthrough не считается расшифрованным запросом.
+Скачайте сборку на странице [**Releases**](https://github.com/mixelka75/siphon/releases/latest).
 
-### Восстановление Frida
+| Система | Файл | Требования |
+|---|---|---|
+| **macOS** 13+ (Apple Silicon и Intel) | `Siphon-macOS-universal.dmg` | — |
+| **Windows** 10/11 x64 | `Siphon-Windows-x64.zip` | [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (в Windows 11 уже есть) |
+| **Linux** x64 (Debian 12 / Ubuntu 24.04+) | `Siphon-Linux-x64.tar.gz` | `libgtk-3-0`, `libwebkit2gtk-4.1-0` |
 
-При `setArgV0` / `DeadSystemException` на эмуляторе Siphon один раз восстанавливает Android framework
-и Frida, затем повторяет запуск. Автовосстановление не выполняется при другом активном перехвате на устройстве.
-Готовность проверяется по новому PID zygote, менеджеру пакетов и состоянию загрузки.
-Временная недоступность launcher activity после перезапуска обрабатывается с ограниченным ожиданием.
+### macOS
 
-Кнопка **«Восстановить Android»** доступна вручную. Она предупреждает, что приложения на устройстве закроются.
-На физическом телефоне автоматического перезапуска Android нет.
-Остановка сессии отменяет незавершённый запуск и освобождает proxy-порт, adb reverse и соединение Frida;
-ошибка загрузки скрипта не оставляет приложение приостановленным.
+**Самый простой способ** — одна команда в Терминале (скачает, установит в «Программы» и сразу запустит):
 
-## Трафик, правила и breakpoints
+```sh
+curl -fsSL https://raw.githubusercontent.com/mixelka75/siphon/main/install.sh | sh
+```
 
-- HTTP/1.1, HTTP/2, TLS, CONNECT, SOCKS5, WebSocket, raw TCP, SSE, gRPC-трейлеры.
-- Просмотр заголовков, параметров, JSON без потери 64-битных чисел, form, изображений и hex.
-- Распаковка gzip, brotli, zstd, deflate; экспорт HAR и cURL.
-- Фильтры: `host:api status:4xx method:post type:json src:com.app is:error -слово`.
-- Правила: mock, redirect, правка заголовков/тел, строковая/regex-замена, задержка, обрыв соединения.
-- Первое подходящее включённое правило побеждает; кнопки ↑↓ меняют порядок.
-- Кнопка «Правило» в деталях запроса создаёт правило с заполненными условиями.
-- Breakpoints запроса и ответа: изменить метод, URL, заголовки, статус и текстовое тело; продолжить либо оборвать.
-  Продолжение без правок сохраняет исходные двоичные и сжатые тела. Невалидное решение не снимает breakpoint.
-- Правила и настройки сохраняются атомарно. Завершённый трафик хранится в памяти; для сохранения используйте HAR.
+**Или вручную:** откройте `.dmg` и перетащите Siphon в «Программы».
 
-Клавиши: `⌘K` / `Ctrl+K` — поиск, ↑↓ — навигация, Backspace/Delete — удалить.
+Приложение не подписано платным сертификатом Apple Developer, поэтому при первом запуске macOS его остановит:
 
-## Сборка
+- **«Не удалось открыть, так как не удалось проверить разработчика»** — откройте **Системные настройки → Конфиденциальность и безопасность**,
+  внизу нажмите **«Всё равно открыть»**. На macOS 13/14 достаточно кликнуть по приложению правой кнопкой → **Открыть**.
+- **«Siphon повреждён и не может быть открыт»** — это тот же карантин, не повреждение файла. Снимите его командой:
 
-Нужны Go 1.27.3+ и Node 22+. Для нативных сборок macOS нужны Xcode Command Line Tools;
-на Linux — GCC, pkg-config, GTK 3 и WebKitGTK 4.1 development packages. Wails закреплён на 2.17.0.
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Siphon.app
+  ```
+
+Делается один раз, дальше приложение запускается как обычное.
+
+### Windows
+
+Распакуйте архив и запустите `Siphon.exe`. Если SmartScreen пишет «Windows защитила ваш компьютер» —
+**Подробнее → Выполнить в любом случае** (сборка не подписана).
+Для физического телефона нужен драйвер USB вашего производителя (для Google Pixel — [Google USB Driver](https://developer.android.com/studio/run/win-usb)); эмулятору драйвер не нужен.
+
+### Linux
+
+```sh
+sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0     # зависимости
+tar xzf Siphon-Linux-x64.tar.gz && cd Siphon-Linux-x64 && ./install.sh
+```
+
+Скрипт ставит Siphon в `~/.local` (без sudo) и добавляет значок в меню приложений. Или та же однострочная команда, что для macOS.
+
+## Быстрый старт
+
+1. Запустите эмулятор или подключите телефон по USB с включённой «Отладкой по USB».
+2. Откройте **Android → Подготовить устройство**. Если на компьютере нет `adb`, Siphon предложит скачать
+   официальные platform-tools от Google (≈15 МБ) — нажмите «Скачать».
+3. Выберите приложение и нажмите **Перехватить**. «Перезапустить» подключает хуки с самого старта приложения.
+4. Перейдите в **Трафик**. Запросы появятся сами.
+
+> **Нужен root.** Подойдёт образ эмулятора **Google APIs** (без Google Play) или телефон с root/Magisk.
+> Сертификат на телефон вручную ставить не нужно.
+
+## Горячие клавиши и фильтры
+
+| | |
+|---|---|
+| `⌘1`…`⌘4` / `Ctrl+1`…`4` | разделы: Трафик, Android, Правила, Настройки |
+| `⌘K` / `Ctrl+K` | поиск по трафику |
+| `↑` `↓`, `Delete` | навигация и удаление запроса |
+
+Фильтр: `host:api status:4xx method:post type:json src:com.app is:error -слово`
+
+## Если что-то не работает
+
+| Симптом | Что делать |
+|---|---|
+| Устройство не видно | Включите «Отладку по USB», подтвердите ключ на телефоне; на Windows поставьте USB-драйвер; на Linux добавьте [udev-правила](https://developer.android.com/studio/run/device#setting-up) |
+| «Нужен root» | Используйте эмулятор Google APIs (без Play Store) или телефон с Magisk |
+| Приложение вылетает при перехвате | Включите **«Совместимый TLS»** в карточке перехвата |
+| Эмулятор завис после Frida | Кнопка **«Восстановить Android»** на странице Android |
+| Часть запросов — «TLS passthrough» | Приложение закрепило сертификат; это не расшифрованный запрос. Попробуйте режим «Перезапустить» |
+
+Подробнее про перехват, профиль 2ГИС и восстановление Frida — в [docs/ANDROID.md](docs/ANDROID.md).
+
+## Сборка из исходников
+
+Нужны Go 1.27.3+ и Node 22+. Для нативных сборок: на macOS — Xcode Command Line Tools,
+на Linux — GCC, pkg-config, GTK 3 и WebKitGTK 4.1 (`-dev`). Wails закреплён на 2.17.0.
 
 ```sh
 make setup             # npm-зависимости интерфейса
-make test              # vet, Go race tests, TypeScript
-make build             # bin/siphon: режим в браузере
-make native            # нативная сборка для текущей ОС
-make native-windows    # desktop/build/bin/Siphon.exe
+make test              # vet, Go race-тесты, TypeScript
+make native            # нативное приложение для текущей ОС
+make native-windows    # Siphon.exe
 make native-linux      # Docker → bin/linux-amd64/siphon
+make build             # bin/siphon: режим в браузере (127.0.0.1:8484)
 ```
 
-Универсальная macOS-сборка:
+**Релизы собирает GitHub Actions.** Достаточно поставить тег:
 
 ```sh
-cd desktop
-MACOSX_DEPLOYMENT_TARGET=13.0 go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.0 build -platform darwin/universal
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
-`desktop` — отдельный Go-модуль с локальным `replace siphon => ..`:
-обычный CLI и Go-тесты backend не требуют нативных GUI-библиотек.
-`make dist` создаёт CLI-бинарники macOS/Linux/Windows; это отдельные сборки для браузерного режима.
+Пайплайн соберёт macOS (universal, ad-hoc подпись, `.dmg` и `.zip`), Windows и Linux, посчитает `SHA256SUMS.txt`
+и опубликует релиз. Каждый push в `main` тоже собирает все три платформы (артефакты во вкладке Actions).
 
-Проверка на подключённом устройстве (явно запускает указанное приложение):
+## Границы версии
 
-```sh
-SIPHON_LIVE_ANDROID=emulator-5554 SIPHON_LIVE_APP=ru.dublgis.dgismobile \
-  SIPHON_LIVE_HOST=.2gis.com go test ./internal/intercept -run TestLiveAndroidCapture -v -timeout 3m
-```
-
-Обычный `make test` пропускает испытания, которым нужен настоящий Android/Frida.
-
-## Режим в браузере
-
-```sh
-./bin/siphon                       # окно браузера на 127.0.0.1:8484
-./bin/siphon --no-open             # без открытия браузера
-./bin/siphon --ui 127.0.0.1:8484 --proxy 127.0.0.1:8000 --data /путь/к/данным
-```
-
-GUI API доступен только через loopback; cross-origin доступ нативного окна ограничен origin Wails.
-Скомпилированный интерфейс и Frida-скрипты вшиты в бинарники.
-Данные: macOS `~/Library/Application Support/Siphon`, Linux `~/.config/Siphon`, Windows `%AppData%\Siphon`.
-Каталог можно задать `SIPHON_DATA_DIR`; для CLI также существует `--data`.
-
-## Границы текущей версии
-
-- Интерфейс находится в системном WebView, компоненты нарисованы React; это не отдельная реализация на SwiftUI/WinUI/GTK.
-- iOS, редактор произвольных новых запросов/resend и генерация кода на других языках пока не реализованы.
+- Интерфейс в системном WebView (React), а не отдельная реализация на SwiftUI/WinUI/GTK.
+- iOS, редактор произвольных запросов (resend) и генерация кода пока нет.
 - Внешний upstream-прокси не применяется к WebSocket и raw TCP.
-- Регистр и порядок HTTP-заголовков нормализуются `net/http`.
-- Ни одна версия Frida не гарантирует обход pinning у любого приложения. Passthrough виден отдельно.
+- Ни одна версия Frida не гарантирует обход pinning у любого приложения.
+- Бинарники не подписаны сертификатами Apple/Microsoft. macOS-сборка имеет локальную ad-hoc подпись.
 
-## Исходники и лицензии
+Данные: macOS `~/Library/Application Support/Siphon`, Linux `~/.config/Siphon`, Windows `%AppData%\Siphon`
+(можно переопределить `SIPHON_DATA_DIR`). Завершённый трафик хранится в памяти — для сохранения экспортируйте HAR.
 
-`cmd/siphon` — CLI; `desktop` — нативное окно; `internal/app` — общий жизненный цикл;
-`internal/proxy`, `rules`, `capture` — трафик; `internal/adb`, `frida`, `intercept`, `fridascripts` — Android;
-`internal/api` — локальный API; `ui` — интерфейс.
+## Устройство репозитория и лицензии
 
-В `internal/fridascripts/scripts` включены скрипты HTTP Toolkit (AGPL-3.0-or-later), их LICENSE и сведения об источнике.
-`native-openssl-trust.js` — добавленный скрипт Siphon. Исходный архив поставляется вместе со сборками.
+`cmd/siphon` — CLI · `desktop` — нативное окно · `internal/proxy`, `rules`, `capture` — трафик ·
+`internal/adb`, `frida`, `intercept`, `fridascripts` — Android · `internal/api` — локальный API · `ui` — интерфейс.
+
+В `internal/fridascripts/scripts` включены скрипты [HTTP Toolkit](https://github.com/httptoolkit/frida-interception-and-unpinning)
+(AGPL-3.0-or-later), их LICENSE и сведения об источнике. `native-openssl-trust.js` — скрипт Siphon.
