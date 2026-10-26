@@ -43,6 +43,8 @@ Windows: the path to `Siphon.exe` with the `mcp` argument.
 [mcp_servers.siphon]
 command = "/Applications/Siphon.app/Contents/MacOS/Siphon"
 args = ["mcp"]
+# wait_for_user and emulator start wait up to 900 s; Codex cuts tool calls at 60 s by default.
+tool_timeout_sec = 960
 ```
 
 From source: `go build -o bin/siphon ./cmd/siphon`, then `bin/siphon mcp`.
