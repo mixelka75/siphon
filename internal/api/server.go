@@ -28,6 +28,9 @@ type Config struct {
 	DataDir   string
 	ProxyAddr string // адрес ручного прокси, например 127.0.0.1:8000
 	Web       fs.FS  // собранный интерфейс (может быть nil)
+	// Executable — путь к бинарнику Siphon: с аргументом mcp он работает как
+	// MCP-сервер для ИИ-агентов (показываем команду подключения в настройках).
+	Executable string
 }
 
 type Server struct {
@@ -35,10 +38,11 @@ type Server struct {
 	engine *proxy.Engine
 	store  *capture.Store
 	mgr    *intercept.Manager
+	agent  *agentHub
 }
 
 func New(cfg Config, engine *proxy.Engine, mgr *intercept.Manager) *Server {
-	return &Server{cfg: cfg, engine: engine, store: engine.Store, mgr: mgr}
+	return &Server{cfg: cfg, engine: engine, store: engine.Store, mgr: mgr, agent: newAgentHub()}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -59,6 +63,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/exchanges/clear", s.handleClear)
 	mux.HandleFunc("GET /api/export/har", s.handleHAR)
 	mux.HandleFunc("POST /api/export/har", s.handleHAR)
+	mux.HandleFunc("GET /api/export/json", s.handleExportJSON)
+	mux.HandleFunc("POST /api/export/json", s.handleExportJSON)
 
 	mux.HandleFunc("GET /api/rules", s.handleGetRules)
 	mux.HandleFunc("PUT /api/rules", s.handlePutRules)
@@ -75,9 +81,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/android/devices/{serial}/stop-frida", s.handleStopFrida)
 	mux.HandleFunc("POST /api/android/devices/{serial}/restart-framework", s.handleRestartFramework)
 	mux.HandleFunc("GET /api/android/devices/{serial}/apps", s.handleApps)
+	mux.HandleFunc("GET /api/android/emulators", s.handleEmulators)
+	mux.HandleFunc("POST /api/android/emulators/{name}/start", s.handleStartEmulator)
 	mux.HandleFunc("POST /api/android/sessions", s.handleStartSession)
 	mux.HandleFunc("POST /api/android/sessions/{id}/stop", s.handleStopSession)
 	mux.HandleFunc("DELETE /api/android/sessions/{id}", s.handleDismissSession)
+
+	mux.HandleFunc("GET /api/agent/asks", s.handleAsks)
+	mux.HandleFunc("POST /api/agent/asks", s.handleCreateAsk)
+	mux.HandleFunc("GET /api/agent/asks/{id}", s.handleGetAsk)
+	mux.HandleFunc("POST /api/agent/asks/{id}/answer", s.handleAnswerAsk)
+	mux.HandleFunc("DELETE /api/agent/asks/{id}", s.handleWithdrawAsk)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, errors.New("неизвестный метод API"))
@@ -206,6 +220,8 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 		"proxy":    map[string]any{"port": port, "bind": bind, "lanIPs": lanIPs()},
 		"adb":      s.mgr.ADBStatus(),
 		"settings": s.engine.Settings.Get(),
+		"traffic":  map[string]any{"lastSeq": s.store.LastSeq()},
+		"agent":    map[string]any{"executable": s.cfg.Executable, "desktop": s.cfg.Desktop},
 	})
 }
 
@@ -245,7 +261,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	traffic, cancelT := s.store.Subscribe()
 	android, cancelA := s.mgr.Subscribe()
-	defer func() { cancelT(); cancelA() }()
+	agent, cancelG := s.agent.Subscribe()
+	defer func() { cancelT(); cancelA(); cancelG() }()
 
 	if !send(msg{Ch: "hello", Event: map[string]string{"version": s.cfg.Version}}) {
 		return
@@ -275,6 +292,17 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if !send(msg{Ch: "android", Event: ev}) {
+				return
+			}
+		case ev, ok := <-agent:
+			if !ok {
+				if !send(msg{Ch: "agent", Event: AgentEvent{Type: "resync"}}) {
+					return
+				}
+				agent, cancelG = s.agent.Subscribe()
+				continue
+			}
+			if !send(msg{Ch: "agent", Event: ev}) {
 				return
 			}
 		}

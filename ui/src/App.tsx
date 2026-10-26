@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
+import { AgentBanner } from './components/AgentBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Icon } from './components/ui';
 import { AndroidPage } from './pages/Android';
 import { SettingsPage } from './pages/Settings';
 import { RulesPage } from './pages/Rules';
 import { TrafficPage } from './pages/Traffic';
-import { connect, getItems, useAndroid, useUI } from './store';
+import { connect, getItems, useAgent, useAndroid, useUI } from './store';
 
 const NAV = [
   { id: 'traffic', label: 'Трафик', icon: 'traffic' },
@@ -22,6 +23,7 @@ export default function App() {
   const appState = useUI((s) => s.appState);
   useUI((s) => s.version); // перерисовка счётчика
   const sessions = useAndroid((s) => s.sessions);
+  const asks = useAgent((s) => s.asks.length);
 
   useEffect(() => { connect(); }, []);
 
@@ -75,6 +77,7 @@ export default function App() {
         </aside>
 
         <main className="main">
+          <AgentBanner />
           <ErrorBoundary key={page}>
             {page === 'traffic' && <TrafficPage />}
             {page === 'android' && <AndroidPage />}
@@ -86,6 +89,7 @@ export default function App() {
 
       <footer className="statusbar">
         {active > 0 && <div className="sb-cell live">● live</div>}
+        {asks > 0 && <div className="sb-cell live">ИИ ждёт вас</div>}
         <div className="sb-cell">
           <span className={'dot ' + (connected ? 'green' : 'orange pulse')} />
           {connected ? 'подключено' : 'переподключаюсь…'}

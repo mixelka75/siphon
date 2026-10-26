@@ -121,6 +121,14 @@ func (s *Store) Get(id string) (Exchange, bool) {
 	return *e, true
 }
 
+// LastSeq — порядковый номер последней записи (0, если записей не было).
+// Агенты используют его как отметку «до этого момента».
+func (s *Store) LastSeq() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.seq
+}
+
 func (s *Store) List() []Exchange {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

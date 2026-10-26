@@ -16,6 +16,7 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"siphon/internal/app"
+	"siphon/internal/mcp"
 	"siphon/internal/webui"
 )
 
@@ -44,6 +45,15 @@ func (d *Desktop) SaveFile(name, data string) (bool, error) {
 }
 
 func main() {
+	// Siphon mcp — MCP-сервер для ИИ-агентов (stdio), см. docs/AI.md. Окно не
+	// открывается; если Siphon не запущен, сервер сам откроет приложение.
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		opts := mcp.Options{Version: version, Launch: func() error { return mcp.LaunchSelf() }}
+		if err := mcp.Serve(context.Background(), os.Stdin, os.Stdout, opts); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	backend, err := app.Start(ctx, app.Config{Version: version, UIAddr: "127.0.0.1:0", Desktop: true})

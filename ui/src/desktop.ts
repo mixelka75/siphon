@@ -4,7 +4,10 @@ interface NativeBridge {
   SaveFile(name: string, base64: string): Promise<boolean>;
 }
 
-declare global { interface Window { go?: { main?: { Desktop?: NativeBridge } } } }
+// window.runtime — JS-рантайм Wails (есть только в нативном окне).
+interface WailsRuntime { WindowShow?: () => void; WindowUnminimise?: () => void }
+
+declare global { interface Window { go?: { main?: { Desktop?: NativeBridge } }; runtime?: WailsRuntime } }
 
 let backend = '';
 const bridge = () => window.go?.main?.Desktop;
@@ -42,4 +45,10 @@ export async function saveURL(url: string, name: string) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   await saveBlob(await res.blob(), name);
+}
+
+// Показать окно, если оно свёрнуто: ИИ-агент ждёт действий пользователя.
+export function nativeAttention() {
+  window.runtime?.WindowUnminimise?.();
+  window.runtime?.WindowShow?.();
 }

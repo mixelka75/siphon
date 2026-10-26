@@ -6,7 +6,7 @@ import { Empty, Icon } from '../components/ui';
 import {
   displayPath, fmtBytes, fmtMs, methodLabel, parseFilter, shortType, statusClass, statusText,
 } from '../format';
-import { downloadHAR } from '../har';
+import { downloadHAR, downloadJSON } from '../har';
 import { getItems, useUI } from '../store';
 
 const ROW = 26;
@@ -179,6 +179,10 @@ export function TrafficPage() {
         <button className="btn sm" disabled={!all.length} title="Сохранить показанные запросы как HAR"
           onClick={() => downloadHAR(filtered.map((e) => e.id)).catch((err) => showToast(String(err.message ?? err)))}>
           <Icon name="export" size={13} /> HAR
+        </button>
+        <button className="btn sm" disabled={!all.length} title="Сохранить показанные запросы в JSON: заголовки, раскодированные тела, кадры WebSocket"
+          onClick={() => downloadJSON(filtered.map((e) => e.id)).catch((err) => showToast(String(err.message ?? err)))}>
+          <Icon name="export" size={13} /> JSON
         </button>
         <button className="btn sm danger" disabled={!all.length} title="Удалить всё, кроме закреплённых"
           onClick={() => { select(null); void api.clear(true); }}>

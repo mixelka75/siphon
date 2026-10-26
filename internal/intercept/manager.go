@@ -18,7 +18,7 @@ import (
 )
 
 type Event struct {
-	Type string `json:"type"` // adb | devices | progress | session | session-log
+	Type string `json:"type"` // adb | devices | emulators | progress | prepare-done | session | session-log
 	Data any    `json:"data"`
 }
 
@@ -77,6 +77,7 @@ type Manager struct {
 	order        []string
 	nextID       int
 	trackCan     context.CancelFunc
+	launches     map[string]*emulatorLaunch // AVD, запущенные из Siphon
 
 	subMu   sync.Mutex
 	subs    map[int]chan Event
@@ -94,6 +95,7 @@ func New(engine *proxy.Engine, dataDir string) *Manager {
 		prepErr:      map[string]string{},
 		fridaStreams: map[string]net.Conn{},
 		sessions:     map[string]*Session{},
+		launches:     map[string]*emulatorLaunch{},
 		subs:         map[int]chan Event{},
 		rootCtx:      context.Background(),
 	}
@@ -435,12 +437,13 @@ func (m *Manager) prepare(ctx context.Context, serial string) error {
 }
 
 // PrepareAsync запускает подготовку в фоне. Ход виден в событиях progress, а
-// итог — в событии prepare-done (с полем error при неудаче).
-func (m *Manager) PrepareAsync(serial string) error {
+// итог — в событии prepare-done (с полем error при неудаче) и в канале done.
+func (m *Manager) PrepareAsync(serial string) (done <-chan error, err error) {
 	if !m.setBusy(serial, true) {
-		return ErrBusy
+		return nil, ErrBusy
 	}
 	m.setPrepareError(serial, "")
+	ch := make(chan error, 1)
 	go func() {
 		err := m.prepare(m.rootContext(), serial)
 		res := map[string]string{"serial": serial}
@@ -450,8 +453,9 @@ func (m *Manager) PrepareAsync(serial string) error {
 		}
 		m.setBusy(serial, false)
 		m.publish(Event{Type: "prepare-done", Data: res})
+		ch <- err
 	}()
-	return nil
+	return ch, nil
 }
 
 // StopFrida останавливает frida-server на устройстве.

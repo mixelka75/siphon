@@ -53,6 +53,9 @@ export function SettingsPage() {
 
   if (!s) return null;
   const proxy = appState?.proxy;
+  const exe = appState?.agent?.executable ?? '';
+  const quoted = /\s/.test(exe) ? `"${exe}"` : exe;
+  const mcpCommand = `claude mcp add --scope user siphon -- ${quoted} mcp`;
   const exposed = proxy?.bind === '0.0.0.0';
   const addr = (host: string) => `${host}:${proxy?.port ?? ''}`;
 
@@ -98,6 +101,26 @@ export function SettingsPage() {
           </div>
           <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
             Файл ключа лежит в <code>{appState?.dataDir}/ca</code>. Никому его не передавайте: с ним можно подписать сертификат для любого сайта.
+          </div>
+        </div>
+
+        <h2>ИИ-агенты</h2>
+        <div className="card pad" style={{ marginBottom: 20 }}>
+          <div className="muted" style={{ marginBottom: 8 }}>
+            Siphon работает как MCP-сервер. Claude Code, Cursor, Codex и другие агенты сами запускают эмулятор,
+            включают перехват, просят вас выполнить действия в приложении (баннер с кнопкой «Готово») и разбирают трафик.
+            Подключение для Claude Code — одна команда:
+          </div>
+          <div className="row" style={{ alignItems: 'flex-start' }}>
+            <code className="grow" style={{ padding: '6px 8px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{mcpCommand}</code>
+            <button className="btn" disabled={!exe}
+              onClick={async () => showToast((await copyText(mcpCommand)) ? 'Скопировано' : 'Ошибка')}>
+              <Icon name="copy" size={14} /> Копировать
+            </button>
+          </div>
+          <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+            Для других клиентов: команда <code style={{ overflowWrap: 'anywhere' }}>{exe}</code> с аргументом <code>mcp</code>, транспорт stdio.
+            Агентам без MCP подойдёт HTTP API — описание в <code>docs/AI.md</code>.
           </div>
         </div>
 

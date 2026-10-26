@@ -7,7 +7,7 @@ import { onFrames, useUI } from '../store';
 import { BodyView } from './BodyView';
 import { BreakpointPanel } from './BreakpointPanel';
 import { Icon, Section, Spinner } from './ui';
-import { downloadHAR } from '../har';
+import { downloadHAR, downloadJSON } from '../har';
 
 function KV({ rows, plain }: { rows: [string, ReactNode][]; plain?: boolean }) {
   const showToast = useUI((s) => s.showToast);
@@ -213,6 +213,8 @@ export function Detail({ e }: { e: Exchange }) {
             onClick={async () => copy(await api.curl(e.id), 'cURL скопирован')}><Icon name="terminal" size={14} /></button>}
           {isHTTP && <button className="btn ghost sm icon-only" title="Сохранить как HAR"
             onClick={() => downloadHAR([e.id])}><Icon name="export" size={14} /></button>}
+          <button className="btn ghost sm" title="Сохранить в JSON: заголовки, раскодированные тела, кадры"
+            onClick={() => downloadJSON([e.id]).catch((err) => showToast(String(err.message ?? err)))}>JSON</button>
           <button className="btn ghost sm icon-only" title="Удалить" onClick={() => api.remove([e.id])}><Icon name="trash" size={14} /></button>
         </div>
       </div>

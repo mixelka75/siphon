@@ -23,14 +23,15 @@ Pick an app — see all of its requests in plain text. No manual certificate set
 ## What is it
 
 Siphon runs [Frida](https://frida.re) on an Android device, routes the chosen app's traffic through itself and bypasses
-certificate pinning. You see requests and responses, can edit them on the fly, mock server replies and export traffic as HAR.
+certificate pinning. You see requests and responses, can edit them on the fly, mock server replies and export traffic as HAR or JSON.
 It is a native desktop window (not a browser tab) and everything stays on your machine.
 
 - **One-click interception** — connect a phone or emulator, pick an app, hit "Intercept".
 - **Sets itself up** — Siphon downloads `adb` and `frida-server` for you if they are missing.
 - **Rules and breakpoints** — mock, redirect, edit headers/bodies, delay, drop; pause on a request or response.
 - **Any client** — besides Android it is a plain HTTP/HTTPS/SOCKS5 proxy for browsers, Postman, simulators.
-- **Smart viewer** — JSON, forms, images, hex; gzip/brotli/zstd; HTTP/2, WebSocket, SSE, gRPC; HAR and cURL export.
+- **Smart viewer** — JSON, forms, images, hex; gzip/brotli/zstd; HTTP/2, WebSocket, SSE, gRPC; HAR, JSON and cURL export.
+- **AI agents** — a built-in MCP server: the agent starts the emulator and interception, asks you to go through a scenario in the app and analyzes the traffic.
 
 ## Install
 
@@ -89,6 +90,19 @@ Installs into `~/.local` (no sudo) and adds a launcher entry. The one-liner abov
 > **Root is required.** Use a **Google APIs** emulator image (without Google Play) or a rooted/Magisk phone.
 > No need to install a certificate on the phone.
 
+## AI agents
+
+Siphon is an MCP server for Claude Code, Cursor, Codex and other agents. Setup for Claude Code (macOS):
+
+```sh
+claude mcp add --scope user siphon -- /Applications/Siphon.app/Contents/MacOS/Siphon mcp
+```
+
+Then just ask: "Start an emulator, intercept `com.example.shop`, I'll log in, then describe the API and write a client".
+The agent starts the emulator, prepares the device and turns on interception. Then it shows a banner in the Siphon
+window and waits until you press Done. After that it reads the decrypted traffic.
+The command for your system is in **Settings → AI agents**; details and the HTTP API for agents without MCP are in [docs/AI.en.md](docs/AI.en.md).
+
 ## Shortcuts and filters
 
 | | |
@@ -143,7 +157,7 @@ and publishes the release. Every push to `main` also builds all three platforms 
 - Binaries are not signed with Apple/Microsoft certificates. The macOS build carries a local ad-hoc signature.
 
 Data: macOS `~/Library/Application Support/Siphon`, Linux `~/.config/Siphon`, Windows `%AppData%\Siphon`
-(override with `SIPHON_DATA_DIR`). Finished traffic is kept in memory — export HAR to keep it.
+(override with `SIPHON_DATA_DIR`). Finished traffic is kept in memory — export HAR or JSON to keep it.
 
 ## Repository layout and licenses
 

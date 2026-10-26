@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { apiUrl } from './desktop';
+import { apiUrl, nativeAttention } from './desktop';
 import {
-  api, type AppState, type ADBStatus, type Device, type Exchange, type Frame, type Session, type LogLine, type Rule,
+  api, type AgentAsk, type AppState, type ADBStatus, type Device, type Exchange, type Frame, type Session, type LogLine, type Rule,
 } from './api';
 
 // ---------- Трафик ----------
@@ -216,6 +216,25 @@ export async function loadAndroid() {
   useAndroid.setState({ adb: a.adb, devices: a.devices ?? [], sessions: a.sessions ?? [] });
 }
 
+// ---------- ИИ-агенты ----------
+
+export const useAgent = create<{ asks: AgentAsk[] }>(() => ({ asks: [] }));
+
+function onAgent(ev: { type: string; ask?: AgentAsk }) {
+  if (ev.type === 'resync') { void loadAsks(); return; }
+  const ask = ev.ask;
+  if (!ask) return;
+  useAgent.setState((s) => {
+    const rest = s.asks.filter((a) => a.id !== ask.id);
+    return { asks: ask.state === 'waiting' ? [...rest, ask] : rest };
+  });
+  if (ask.state === 'waiting') nativeAttention();
+}
+
+async function loadAsks() {
+  useAgent.setState({ asks: await api.asks() });
+}
+
 // ---------- Соединение ----------
 
 let socket: WebSocket | null = null;
@@ -231,7 +250,7 @@ export function connect() {
   ws.onopen = () => {
     retry = 0;
     useUI.setState({ connected: true });
-    void Promise.all([loadTraffic(), loadAndroid(), api.state().then((appState) => useUI.setState({ appState }))]).catch(() => {});
+    void Promise.all([loadTraffic(), loadAndroid(), loadAsks(), api.state().then((appState) => useUI.setState({ appState }))]).catch(() => {});
   };
   ws.onmessage = (m) => {
     let msg: { ch: string; event: any };
@@ -243,6 +262,8 @@ export function connect() {
       scheduleFlush();
     } else if (msg.ch === 'android') {
       onAndroid(msg.event as AndroidEvent);
+    } else if (msg.ch === 'agent') {
+      onAgent(msg.event);
     }
   };
   ws.onclose = () => {

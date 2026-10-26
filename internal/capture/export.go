@@ -185,3 +185,94 @@ func HAR(list []Exchange, body BodyFunc, version string) ([]byte, error) {
 	}}
 	return json.MarshalIndent(doc, "", "  ")
 }
+
+// ExportFormat — метка формата JSON-экспорта Siphon.
+const ExportFormat = "siphon/v1"
+
+// ExportMessage — запрос или ответ с раскодированным телом. Тело лежит ровно в
+// одном поле: json (валидный JSON), text (UTF-8) или base64 (двоичные данные).
+type ExportMessage struct {
+	Message
+	JSON        json.RawMessage `json:"json,omitempty"`
+	Text        string          `json:"text,omitempty"`
+	Base64      string          `json:"base64,omitempty"`
+	DecodeError string          `json:"decodeError,omitempty"`
+}
+
+type ExportFrame struct {
+	Seq       int       `json:"seq"`
+	Dir       string    `json:"dir"`
+	Kind      string    `json:"kind"`
+	Time      time.Time `json:"time"`
+	Size      int       `json:"size"`
+	Truncated bool      `json:"truncated,omitempty"`
+	Text      string    `json:"text,omitempty"`
+	Base64    string    `json:"base64,omitempty"`
+}
+
+// ExportExchange — запись целиком: поля Exchange, тела и кадры.
+type ExportExchange struct {
+	Exchange
+	Request  *ExportMessage `json:"request,omitempty"`
+	Response *ExportMessage `json:"response,omitempty"`
+	Frames   []ExportFrame  `json:"frames,omitempty"`
+}
+
+type Export struct {
+	Format    string            `json:"format"`
+	Creator   map[string]string `json:"creator"`
+	Exported  time.Time         `json:"exported"`
+	Count     int               `json:"count"`
+	Exchanges []ExportExchange  `json:"exchanges"`
+}
+
+func exportMessage(m *Message, raw []byte) *ExportMessage {
+	if m == nil {
+		return nil
+	}
+	out := &ExportMessage{Message: *m}
+	if len(raw) == 0 {
+		return out
+	}
+	data, err := Decode(m.Encoding, raw)
+	if err != nil {
+		out.DecodeError = err.Error()
+		data = raw
+	}
+	trimmed := bytes.TrimSpace(data)
+	jsonish := strings.Contains(strings.ToLower(m.ContentType), "json") ||
+		bytes.HasPrefix(trimmed, []byte("{")) || bytes.HasPrefix(trimmed, []byte("["))
+	switch {
+	case err == nil && jsonish && json.Valid(trimmed):
+		out.JSON = trimmed
+	case err == nil && isTextual(m.ContentType, data):
+		out.Text = string(data)
+	default:
+		out.Base64 = base64.StdEncoding.EncodeToString(data)
+	}
+	return out
+}
+
+// ExportJSON собирает записи вместе с телами и кадрами (для websocket и raw).
+func ExportJSON(list []Exchange, body BodyFunc, frames func(id string) []Frame, version string) Export {
+	out := Export{
+		Format: ExportFormat, Creator: map[string]string{"name": "Siphon", "version": version},
+		Exported: time.Now().UTC(), Count: len(list), Exchanges: make([]ExportExchange, 0, len(list)),
+	}
+	for _, e := range list {
+		x := ExportExchange{Exchange: e, Request: exportMessage(e.Request, body(e.ID, true)), Response: exportMessage(e.Response, body(e.ID, false))}
+		if e.Kind == KindWebSocket || e.Kind == KindRaw {
+			for _, f := range frames(e.ID) {
+				ef := ExportFrame{Seq: f.Seq, Dir: f.Dir, Kind: f.Kind, Time: f.Time, Size: f.Size, Truncated: f.Truncated}
+				if utf8.Valid(f.Data) && f.Kind != "binary" && bytes.IndexByte(f.Data, 0) < 0 {
+					ef.Text = string(f.Data)
+				} else {
+					ef.Base64 = base64.StdEncoding.EncodeToString(f.Data)
+				}
+				x.Frames = append(x.Frames, ef)
+			}
+		}
+		out.Exchanges = append(out.Exchanges, x)
+	}
+	return out
+}

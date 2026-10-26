@@ -1,19 +1,41 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"siphon/internal/adb"
 	"siphon/internal/capture"
 	"siphon/internal/intercept"
 	"siphon/internal/proxy"
 )
 
-func (s *Server) handleList(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, 200, s.store.List())
+// handleList: все записи или выборка (?since=SEQ&filter=…&ids=…&limit=N).
+// С ?wait=SEC ждёт, пока в выборке появится хотя бы одна завершённая запись.
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	q, err := trafficQuery(r)
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	if d := waitParam(r); d > 0 {
+		ctx, cancel := context.WithTimeout(r.Context(), d)
+		s.waitTraffic(ctx, func() bool { return slices.ContainsFunc(q.Select(s.store.List()), finished) })
+		cancel()
+	}
+	list := q.Select(s.store.List())
+	if limit, _ := strconv.Atoi(r.URL.Query().Get("limit")); limit > 0 && len(list) > limit {
+		list = list[len(list)-limit:]
+	}
+	writeJSON(w, 200, list)
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -122,45 +144,44 @@ func (s *Server) handleClear(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
-// handleHAR: GET ?ids=1,2 или POST {"ids":[...]} — пустой список означает «все».
+// handleHAR: GET ?ids=1,2 или POST {"ids":[...]} — пустая выборка означает «все».
+// Принимает те же since и filter, что и /api/exchanges.
 func (s *Server) handleHAR(w http.ResponseWriter, r *http.Request) {
-	var ids []string
-	if r.Method == http.MethodPost {
-		var body struct {
-			IDs []string `json:"ids"`
-		}
-		if err := readJSON(r, &body); err != nil {
-			writeErr(w, 400, err)
-			return
-		}
-		ids = body.IDs
-	} else if q := r.URL.Query().Get("ids"); q != "" {
-		ids = strings.Split(q, ",")
+	q, err := trafficQuery(r)
+	if err != nil {
+		writeErr(w, 400, err)
+		return
 	}
-
-	all := s.store.List()
-	list := all
-	if len(ids) > 0 {
-		want := make(map[string]bool, len(ids))
-		for _, id := range ids {
-			want[id] = true
-		}
-		list = list[:0:0]
-		for _, e := range all {
-			if want[e.ID] {
-				list = append(list, e)
-			}
-		}
-	}
+	list := q.Select(s.store.List())
 	data, err := capture.HAR(list, s.store.Body, s.cfg.Version)
 	if err != nil {
 		writeErr(w, 500, err)
 		return
 	}
+	w.Header().Set("X-Siphon-Count", strconv.Itoa(len(list)))
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition",
 		`attachment; filename="siphon-`+time.Now().Format("20060102-150405")+`.har"`)
 	_, _ = w.Write(data)
+}
+
+// handleExportJSON — экспорт в формате siphon/v1: записи целиком, с
+// раскодированными телами и кадрами WebSocket. Выборка — как у HAR.
+func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
+	q, err := trafficQuery(r)
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	doc := capture.ExportJSON(q.Select(s.store.List()), s.store.Body, s.store.Frames, s.cfg.Version)
+	w.Header().Set("X-Siphon-Count", strconv.Itoa(doc.Count))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition",
+		`attachment; filename="siphon-`+time.Now().Format("20060102-150405")+`.json"`)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(doc)
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
@@ -215,10 +236,38 @@ func (s *Server) handleInspect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, info)
 }
 
+func (s *Server) device(serial string) (intercept.DeviceView, bool) {
+	for _, d := range s.mgr.Devices() {
+		if d.Serial == serial {
+			return d, true
+		}
+	}
+	return intercept.DeviceView{}, false
+}
+
+// handlePrepare запускает подготовку в фоне. С ?wait=SEC дожидается итога и
+// отвечает 200 с устройством (или ошибкой), а если время вышло — 202.
 func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
-	if err := s.mgr.PrepareAsync(r.PathValue("serial")); err != nil {
+	serial := r.PathValue("serial")
+	done, err := s.mgr.PrepareAsync(serial)
+	if err != nil {
 		writeErr(w, statusFor(err), err)
 		return
+	}
+	if d := waitParam(r); d > 0 {
+		select {
+		case err := <-done:
+			if err != nil {
+				writeErr(w, statusFor(err), err)
+				return
+			}
+			dev, _ := s.device(serial)
+			writeJSON(w, 200, dev)
+			return
+		case <-time.After(d):
+		case <-r.Context().Done():
+			return
+		}
 	}
 	writeJSON(w, 202, map[string]bool{"ok": true})
 }
@@ -248,6 +297,9 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apps)
 }
 
+// handleStartSession запускает перехват. С ?wait=SEC ждёт, пока сессия выйдет
+// из состояния starting: 200 и сессия (running, error или stopped — смотрите
+// state и log), 202 — если время вышло.
 func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	var req intercept.StartRequest
 	if err := readJSON(r, &req); err != nil {
@@ -259,7 +311,74 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err)
 		return
 	}
+	if d := waitParam(r); d > 0 {
+		deadline := time.After(d)
+		tick := time.NewTicker(300 * time.Millisecond)
+		defer tick.Stop()
+		for info.State == "starting" {
+			select {
+			case <-deadline:
+				writeJSON(w, 202, info)
+				return
+			case <-r.Context().Done():
+				return
+			case <-tick.C:
+			}
+			for _, sess := range s.mgr.Sessions() {
+				if sess.ID == info.ID {
+					info = sess
+				}
+			}
+		}
+		writeJSON(w, 200, info)
+		return
+	}
 	writeJSON(w, 202, info)
+}
+
+func (s *Server) handleEmulators(w http.ResponseWriter, r *http.Request) {
+	bin, binErr := adb.LocateEmulator()
+	st := map[string]any{"found": binErr == nil, "path": bin}
+	if binErr != nil {
+		st["error"] = binErr.Error()
+	}
+	list, err := s.mgr.Emulators(r.Context())
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"emulator": st, "avds": list})
+}
+
+// handleStartEmulator: POST {"headless":false,"coldBoot":false}. Уже запущенный
+// AVD не перезапускается. С ?wait=SEC ждёт полной загрузки Android: 200 —
+// загрузился (state=running), 202 — время вышло, ещё грузится.
+func (s *Server) handleStartEmulator(w http.ResponseWriter, r *http.Request) {
+	var opts adb.EmulatorOptions
+	if err := readJSON(r, &opts); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, 400, err)
+		return
+	}
+	name := r.PathValue("name")
+	v, err := s.mgr.StartEmulator(r.Context(), name, opts)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
+	if d := waitParam(r); d > 0 && v.State != "running" {
+		ctx, cancel := context.WithTimeout(r.Context(), d)
+		v, err = s.mgr.WaitEmulator(ctx, name)
+		cancel()
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+	}
+	status := http.StatusAccepted
+	if v.State == "running" {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, v)
 }
 
 func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {

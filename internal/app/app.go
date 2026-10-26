@@ -103,7 +103,8 @@ func Start(parent context.Context, cfg Config) (*App, error) {
 	ctx, cancel := context.WithCancel(parent)
 	mgr := intercept.New(engine, dir)
 	mgr.Init(ctx)
-	srv := api.New(api.Config{Version: cfg.Version, DataDir: dir, ProxyAddr: mainProxy.Addr().String(), Web: webui.FS(), Desktop: cfg.Desktop}, engine, mgr)
+	exe, _ := os.Executable()
+	srv := api.New(api.Config{Version: cfg.Version, DataDir: dir, ProxyAddr: mainProxy.Addr().String(), Web: webui.FS(), Desktop: cfg.Desktop, Executable: exe}, engine, mgr)
 	a := &App{URL: "http://" + ln.Addr().String(), ProxyAddr: mainProxy.Addr().String(), DataDir: dir, Manager: mgr, cancel: cancel, proxy: mainProxy,
 		server: &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}}
 	go func() {
@@ -112,11 +113,39 @@ func Start(parent context.Context, cfg Config) (*App, error) {
 			cancel()
 		}
 	}()
+	saveJSON(filepath.Join(dir, EndpointFile), Endpoint{URL: a.URL, Proxy: a.ProxyAddr, PID: os.Getpid(), Version: cfg.Version, Desktop: cfg.Desktop})
 	return a, nil
+}
+
+// EndpointFile лежит в каталоге данных, пока Siphon запущен: по нему ИИ-агенты
+// и MCP-сервер находят API (в нативном приложении порт случайный).
+const EndpointFile = "endpoint.json"
+
+type Endpoint struct {
+	URL     string `json:"url"`
+	Proxy   string `json:"proxy"`
+	PID     int    `json:"pid"`
+	Version string `json:"version"`
+	Desktop bool   `json:"desktop"`
+}
+
+// ReadEndpoint читает адрес запущенного Siphon из каталога данных.
+func ReadEndpoint(dataDir string) (Endpoint, error) {
+	var ep Endpoint
+	raw, err := os.ReadFile(filepath.Join(dataDir, EndpointFile))
+	if err != nil {
+		return ep, err
+	}
+	err = json.Unmarshal(raw, &ep)
+	return ep, err
 }
 
 func (a *App) Close() {
 	a.once.Do(func() {
+		// Файл убираем, только если он наш: рядом мог стартовать второй Siphon.
+		if ep, err := ReadEndpoint(a.DataDir); err == nil && ep.PID == os.Getpid() {
+			_ = os.Remove(filepath.Join(a.DataDir, EndpointFile))
+		}
 		a.cancel()
 		a.Manager.Shutdown()
 		_ = a.proxy.Close()

@@ -78,6 +78,18 @@ export interface AppState {
   proxy: { port: string; bind: string; lanIPs: string[] };
   adb: ADBStatus;
   settings: Settings;
+  traffic?: { lastSeq: number };
+  agent?: { executable: string; desktop: boolean };
+}
+
+// Просьба ИИ-агента к пользователю: баннер с кнопкой «Готово».
+export interface AgentAsk {
+  id: string;
+  message: string;
+  created: string;
+  state: 'waiting' | 'done' | 'cancelled' | 'withdrawn' | 'expired';
+  reply?: string;
+  lastSeq: number;
 }
 
 export interface ADBStatus { found: boolean; path?: string; running: boolean; downloading?: boolean; error?: string }
@@ -198,6 +210,10 @@ export const api = {
   }) => request<Session>('POST', '/api/android/sessions', req),
   stopSession: (id: string) => request('POST', `/api/android/sessions/${id}/stop`),
   dismissSession: (id: string) => request('DELETE', `/api/android/sessions/${id}`),
+
+  asks: () => request<AgentAsk[]>('GET', '/api/agent/asks'),
+  answerAsk: (id: string, reply: string, cancel = false) =>
+    request<AgentAsk>('POST', `/api/agent/asks/${encodeURIComponent(id)}/answer`, { reply, cancel }),
 };
 
 export interface BodyResult {

@@ -13,11 +13,17 @@ import (
 	"syscall"
 
 	"siphon/internal/app"
+	"siphon/internal/mcp"
 )
 
 var version = "0.2.0"
 
 func main() {
+	// siphon mcp — MCP-сервер для ИИ-агентов (stdio), см. docs/AI.md.
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		runMCP(os.Args[2:])
+		return
+	}
 	uiAddr := flag.String("ui", "127.0.0.1:8484", "адрес интерфейса (только локальный)")
 	proxyAddr := flag.String("proxy", "127.0.0.1:8000", "адрес ручного прокси")
 	dataDir := flag.String("data", "", "каталог данных")
@@ -41,6 +47,18 @@ func main() {
 		openBrowser(a.URL)
 	}
 	<-ctx.Done()
+}
+
+func runMCP(args []string) {
+	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
+	url := fs.String("url", "", "адрес API Siphon (по умолчанию — из endpoint.json в каталоге данных)")
+	_ = fs.Parse(args)
+	log.SetOutput(os.Stderr) // stdout занят протоколом
+	// Без окна браузера: адрес интерфейса агент получит в status и передаст пользователю.
+	opts := mcp.Options{Version: version, URL: *url, Launch: func() error { return mcp.LaunchSelf("--no-open") }}
+	if err := mcp.Serve(context.Background(), os.Stdin, os.Stdout, opts); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func openBrowser(url string) {
