@@ -1,0 +1,31 @@
+name: Build Siphon
+on: [workflow_dispatch, push, pull_request]
+jobs:
+  native:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui
+      - run: go vet ./...
+      - run: go test -race ./...
+      - if: runner.os == 'Linux'
+        run: docker build --platform linux/amd64 -f desktop/Dockerfile --output type=local,dest=desktop/build/bin .
+      - if: runner.os != 'Linux'
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.0 build
+        working-directory: desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Siphon-${{ runner.os }}
+          path: desktop/build/bin/

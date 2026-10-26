@@ -1,0 +1,15 @@
+{
+  "name": "siphon-tools",
+  "private": true,
+  "type": "module",
+  "description": "Dev-time tools: fetch Frida scripts, build the Frida 17 Java bridge bundle. Not needed at runtime.",
+  "scripts": {
+    "fetch-scripts": "node fetch-frida-scripts.mjs",
+    "build-bridge": "node build-java-bridge.mjs"
+  },
+  "devDependencies": {
+    "@frida/buffer": "^7.1.0",
+    "esbuild": "^0.28.2",
+    "frida-java-bridge": "^7.0.13"
+  }
+}

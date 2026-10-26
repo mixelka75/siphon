@@ -1,0 +1,11 @@
+node_modules/
+bin/
+*.log
+.DS_Store
+desktop/build/bin/
+desktop/Siphon*
+desktop/*.syso
+ui/wailsjs/
+
+# Вшитый dist хранится в репозитории для сборки Go без Node.
+ui/package.json.md5

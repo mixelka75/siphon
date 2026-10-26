@@ -1,0 +1,32 @@
+Siphon 0.2.0 — проверка 26.10.2026
+
+PASS: go vet ./...
+PASS: go test -race -count=1 ./...
+PASS: TypeScript (tsc --noEmit) и Vite production build.
+PASS: macOS universal .app, arm64 + x86_64; проверка ad-hoc подписи codesign.
+PASS: нативное окно macOS — API, WebSocket, Android, экспорт через системный Save dialog.
+PASS: Windows x64 GUI .exe собран. Ручной запуск Windows не выполнялся.
+PASS: Linux x64 ELF собран в Debian 12; окно под Xvfb оставалось запущенным до окончания проверки.
+
+2ГИС 7.30.0.634.27, Android 14 (API 34), Google APIs arm64 emulator:
+PASS: запуск, загрузка скрипта, приложение продолжает работать.
+PASS: автоматический профиль совместимости для ru.dublgis.dgismobile.
+PASS: CA добавлен в X509_STORE встроенного OpenSSL libv4android.so.
+PASS: POST passepartout.2gis.com -> HTTP 200, непустое тело 1288 байт.
+PASS: GET jam.api.2gis.com -> HTTP 204.
+PASS: из нативного окна расшифрованы запросы map-settings.api.2gis.ru,
+profile.api.2gis.ru, remote-config.api.2gis.ru, tile0.maps.2gis.com,
+relay.api.2gis.ru, stories.api.2gis.ru и других сервисов.
+В одной проверке: 16 ответов 200 с непустыми телами от хостов 2ГИС.
+Сетевые ответы 401/404/502 отдельных endpoint остаются видны без искажения.
+
+Регрессии: прекращение запуска/освобождение ADB при остановке;
+терминальное состояние сессии при конкурирующих callbacks;
+готовность Android после смены PID zygote;
+немедленное разрешение breakpoint и однократная доставка решения;
+невалидное решение не снимает breakpoint;
+продолжение без правок сохраняет gzip и двоичное тело побайтно;
+ограниченные CORS-origin Wails; mock/redirect/headers/body/delay/reset.
+
+Границы: физический Android не проверялся; нет гарантии перехвата всех
+протоколов и всех будущих версий приложений. iOS и resend не реализованы.
